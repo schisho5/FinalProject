@@ -1,0 +1,241 @@
+---
+title: "Trends and Relationships Between CO₂ Emissions and Temperature: A Global and Country Level Analysis"
+author: "Siona Chisholm"
+format:
+  html:
+    toc: true
+    toc-location: left
+    self-contained: true
+jupyter: python3
+---
+
+Question: What are the Trends and Relationships Between CO₂ Emissions and Temperature: A Global and Country Level Analysis
+
+Purpose: CO2 is a major driver of climate change. One of the major impacts we have seen over the past decades are the rise in tempertures worldwide. Given two longitudinal datasets covering global co2 emissions overtime and global temperature overtime, I want to investigate how emissions and temperatures behave over time and within countries.
+
+```{python}
+import pandas as pd
+
+co2 = pd.read_csv("~/Downloads/_COE28282_Emissions2C_Emissions_Intensities2C_and_Emissions_Multipliers.csv")
+temps = pd.read_csv("~/Downloads/GlobalLandTemperatures_GlobalLandTemperaturesByCountry.csv")
+
+co2.head()
+temps.head()
+```
+
+
+Extract year from temperature dataset and compute yearly average per country
+
+```{python}
+temps['dt'] = pd.to_datetime(temps['dt'], errors='coerce')
+temps['Year'] = temps['dt'].dt.year
+
+annual_temp = (temps.groupby(['Country','Year'], as_index=False)['AverageTemperature'].mean().rename(columns={'AverageTemperature': 'AvgTemp'}))
+
+annual_temp.head()
+```
+
+
+Reshape CO₂ dataset into long format 
+
+```{python}
+year_cols = [c for c in co2.columns if c.startswith("F")]
+
+co2_long = co2.melt(
+id_vars=["Country", "ISO2", "ISO3", "Indicator", "Unit"],
+value_vars=year_cols,
+var_name="YearCol",
+value_name="CO2"
+)
+
+co2_long["Year"] = co2_long["YearCol"].str.extract(r"(\d{4})").astype(float)
+
+co2_yearly = (
+co2_long.groupby(["Country","Year"], as_index=False)["CO2"]
+.sum()
+)
+
+co2_yearly.head()
+```
+
+
+Merge Datasets
+
+```{python}
+merged = pd.merge(
+co2_yearly,
+annual_temp,
+on=["Country","Year"],
+how="inner"
+)
+
+merged.head()
+```
+
+Visualize:
+
+Plot CO₂ vs Average Temperature
+
+```{python}
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(8,6))
+plt.scatter(merged['CO2'], merged['AvgTemp'], alpha=0.4)
+plt.xlabel("CO2 Emissions")
+plt.ylabel("Average Temperature (°C)")
+plt.title("CO2 vs Temperature Across All Countries")
+plt.grid(True)
+plt.show()
+```
+
+The scatterplot across all countries shows no clear relationship between total CO₂ emissions and average temperature, largely because climate zones vary by latitude. Therefore, I will frame my question to examine whether years with unusually high CO₂ within a country correspond to unusually high temperatures in that same country. This removes cross country differences and isolates within country trends over time.
+
+Questions
+1. Have global CO₂ emissions and global temperatures both increased over time since 1995?
+
+Global average CO2 and Temp per year
+
+```{python}
+
+global_yearly = merged.groupby("Year").agg(
+    GlobalCO2 = ("CO2", "mean"),
+    GlobalTemp = ("AvgTemp", "mean")
+).reset_index()
+
+```
+
+Plot CO₂ vs Year
+
+```{python}
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(8,5))
+plt.plot(global_yearly["Year"], global_yearly["GlobalCO2"])
+plt.xlabel("Year")
+plt.ylabel("Average CO₂")
+plt.title("Global CO₂ Over Time")
+plt.grid(True)
+plt.show()
+```
+
+Clear fall in co2 overall globally. 
+
+Plot Temperature vs Year
+
+```{python}
+plt.figure(figsize=(8,5))
+plt.plot(global_yearly["Year"], global_yearly["GlobalTemp"])
+plt.xlabel("Year")
+plt.ylabel("Average Temperature (°C)")
+plt.title("Global Temperature Over Time")
+plt.grid(True)
+plt.show()
+```
+
+Clear rise in temperature over time globally.
+
+
+OLS Regression for Global CO₂ Trend:
+```{python}
+import statsmodels.api as sm
+
+X = sm.add_constant(global_yearly["Year"])
+y_co2 = global_yearly["GlobalCO2"]
+
+model_co2 = sm.OLS(y_co2, X).fit()
+model_co2.summary()
+```
+
+Run OLS regression for Global Temperature Trend:
+
+```{python}
+y_temp = global_yearly["GlobalTemp"]
+
+model_temp = sm.OLS(y_temp, X).fit()
+model_temp.summary()
+```
+
+
+The OLS regressions above show the long-term global trends in CO₂ and temperature over time. To compare this with year-to-year variation within countries, I also ran a logistic regression testing whether above median CO₂ years corresponded to above-median temperature years. Although the association was statistically significant (p = 0.001), the effect was negative, suggesting that short term, within-country fluctuations do not reflect the long-term global CO₂-temperature relationship.
+
+
+2. Does CO₂ above its median (per country) correspond to higher-than-average temperatures?
+
+```{python}
+import numpy as np
+
+merged['CO2_med'] = merged.groupby('Country')['CO2'].transform('median')
+merged['HighCO2'] = (merged['CO2'] > merged['CO2_med']).astype(int)
+
+merged['Temp_med'] = merged.groupby('Country')['AvgTemp'].transform('median')
+merged['HighTemp'] = (merged['AvgTemp'] > merged['Temp_med']).astype(int)
+
+import statsmodels.api as sm
+
+y = merged['HighTemp']
+X = sm.add_constant(merged['HighCO2'])
+fit1 = sm.Logit(y, X).fit(disp=False)
+
+fit1.summary2()
+```
+
+Key model result:
+- HighCO2 coefficient = –0.4280
+- p-value = 0.0011 (statistically significant)
+- Pseudo R² = 0.008 (weak predictive power)
+
+The logistic regression suggests that countries with above median CO₂ emissions are less likely to have above median temperatures (within the same country).
+
+To test whether unusually high CO₂ emissions correspond to unusually high temperatures within the same country, I created binary indicators for above-median CO₂ and above-median temperature (calculated separately within each country). I then fit a logistic regression model predicting HighTemp from HighCO2.
+
+The coefficient for HighCO2 was negative at –0.428 with p = 0.001, indicating that years with above median CO₂ emissions were actually less likely to have above median temperatures. Although this effect was statistically significant, the pseudo R² was extremely small (0.008), meaning the model explained less than 1% of the variation in temperature outcomes.
+
+This suggests that year to year CO₂ fluctuations within a single country do not meaningfully predict temperature variation. This is consistent with our broader understanding of climate dynamics: temperature change reflects long-term global emissions, not short-term or country-specific annual emissions.
+
+
+3. Does this year's temperature predict next year's CO₂ being above median?
+
+```{python}
+#create next-year CO2 indicator
+
+merged = merged.sort_values(["Country","Year"])
+merged['HighCO2_next'] = merged.groupby('Country')['HighCO2'].shift(-1)
+
+df2 = merged.dropna(subset=['HighCO2_next','AvgTemp'])
+
+y = df2['HighCO2_next']
+X = sm.add_constant(df2['AvgTemp'])
+
+fit2 = sm.Logit(y, X).fit(disp=False)
+fit2.summary2()
+
+```
+
+
+AvgTemp coefficient = 0.0010, p = 0.89
+
+Logistic regression found no significant relationship between this year’s temperature and whether next year’s CO₂ emissions were above the country’s median (p = 0.89). Temperature does not appear to be a predictor of future emissions in this dataset. This is expected, as emissions are driven by: human activity, industry and policy.
+
+4. Does higher CO₂ predict temperature increase next year?
+
+```{python}
+merged['AvgTemp_next'] = merged.groupby('Country')['AvgTemp'].shift(-1)
+merged['TempIncrease'] = (merged['AvgTemp_next'] > merged['AvgTemp']).astype(int)
+
+df3 = merged.dropna(subset=['TempIncrease','CO2'])
+
+y = df3['TempIncrease']
+X = sm.add_constant(df3['CO2'])
+
+fit3 = sm.Logit(y, X).fit(disp=False)
+fit3.summary2()
+```
+
+
+CO₂ levels were not a significant predictor of whether a country’s temperature increased the following year (p = 0.52). Temperature variation year-to-year is dominated by short term natural variability rather than CO₂ changes. 
+
+Overall, it is a challenge to see climate change trends based on its factors such as CO2 and Temperature Rises for the next year, as climate change trends are long-term, not year-to-year. But as seen in the original plot, there as been a signifanct increase in temperature over time, and significant decreasing trend in industrial co2 emissions, as humans are driving to mitigate climate change. 
+
+
+
+
