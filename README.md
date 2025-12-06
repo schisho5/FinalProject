@@ -13,7 +13,7 @@ All figures, tables, and metrics were generated directly through the code contai
 ## Repository Contents
 
 * **FinalProject.html** – The main html document containing code, analysis, figures, and analysis.
-* **data/** – Folder containing the CO₂ and temperature CSV files.
+* **data/** – The CO₂ and temperature CSV files.
 * **README.md** – Project description and instructions.
 
 ---
