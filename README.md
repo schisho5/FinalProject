@@ -1,6 +1,6 @@
 # Final Project README 
 
-# "Trends and Relationships Between CO₂ Emissions and Temperature: A Global and Country Level Analysis"
+# Trends and Relationships Between CO₂ Emissions and Temperature: A Global and Country Level Analysis
 
 ## Overview
 
